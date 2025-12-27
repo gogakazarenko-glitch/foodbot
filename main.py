@@ -1,11 +1,22 @@
 import logging
+import os
+import subprocess
+import sys
+
+# Устанавливаем aiogram, если Render не поставил
+subprocess.check_call([sys.executable, "-m", "pip", "install", "aiogram==3.4.0"], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
+
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils import executor
 
-# === НАСТРОЙКИ — СЮДА ВСТАВЬ СВОИ ТОКЕНЫ ПОЗЖЕ ===
-BOT_TOKEN = "8292431082:AAE6DxgeZU5gc1EvopKpnC0vkxgnnCSitzU" # замени на свой
-ADMIN_ID = 123456789 # замени на свой Telegram ID (админ, куда приходят заказы)
+# === НАСТРОЙКИ (берём из переменных окружения Render) ===
+BOT_TOKEN = os.getenv("BOT_TOKEN") # сюда Render вставит твой токен
+ADMIN_ID = int(os.getenv("ADMIN_ID", "0")) # твой Telegram ID
+
+if not BOT_TOKEN:
+    print("ОШИБКА: BOT_TOKEN не задан!")
+    sys.exit(1)
 
 # Логи
 logging.basicConfig(level=logging.INFO)
@@ -13,22 +24,21 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN, parse_mode="HTML")
 dp = Dispatcher(bot)
 
-# Пример меню (потом заменишь на своё кафе)
+# Меню кафе (потом поменяешь на своё)
 MENU = {
     "borch": {"name": "Борщ", "price": 350},
     "vareniki": {"name": "Вареники с картошкой", "price": 280},
     "kompot": {"name": "Компот", "price": 100},
 }
 
-# Корзина пользователя (в памяти, на старте хватит)
+# Корзина пользователей (в памяти)
 carts = {}
 
-# Клавиатура главного меню
-main_kb = ReplyKeyboardMarkup(resize_keyboard=True)
+# Главная клавиатура
+main_kb = ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
 main_kb.add(KeyboardButton("🍲 Меню"), KeyboardButton("🛒 Корзина"))
 main_kb.add(KeyboardButton("📞 Контакты"))
 
-# === Команда /start ===
 @dp.message_handler(commands=["start"])
 async def start(message: types.Message):
     await message.answer(
@@ -36,10 +46,9 @@ async def start(message: types.Message):
         reply_markup=main_kb
     )
 
-# === Показ меню ===
 @dp.message_handler(text="🍲 Меню")
 async def show_menu(message: types.Message):
-    kb = InlineKeyboardMarkup(row_width=2)
+    kb = InlineKeyboardMarkup(row_width=1)
     for key, item in MENU.items():
         btn = InlineKeyboardButton(
             text=f"{item['name']} — {item['price']} ₽",
@@ -50,9 +59,8 @@ async def show_menu(message: types.Message):
     if message.from_user.id in carts and carts[message.from_user.id]:
         kb.add(InlineKeyboardButton("🛒 Перейти в корзину", callback_data="cart"))
     
-    await message.answer("Выбери блюдо:", reply_markup=kb)
+    await message.answer("🍽 Выбери блюдо:", reply_markup=kb)
 
-# === Добавление в корзину ===
 @dp.callback_query_handler(lambda c: c.data.startswith("add_"))
 async def add_to_cart(callback: types.CallbackQuery):
     item_key = callback.data.split("_")[1]
@@ -67,26 +75,25 @@ async def add_to_cart(callback: types.CallbackQuery):
         carts[user_id][item_key] = 1
     
     await callback.answer(f"Добавлено: {MENU[item_key]['name']}")
-    await callback.message.edit_reply_markup() # убираем кнопки, чтоб не нажимали повторно
+    await show_menu(callback.message) # обновляем меню
 
-# === Показ корзины ===
 @dp.message_handler(text="🛒 Корзина")
 @dp.callback_query_handler(lambda c: c.data == "cart")
-async def show_cart(message_or_callback):
-    if isinstance(message_or_callback, types.Message):
-        user_id = message_or_callback.from_user.id
-        msg = message_or_callback
+async def show_cart(query_or_message):
+    if isinstance(query_or_message, types.CallbackQuery):
+        user_id = query_or_message.from_user.id
+        message = query_or_message.message
     else:
-        user_id = message_or_callback.from_user.id
-        msg = message_or_callback.message
+        user_id = query_or_message.from_user.id
+        message = query_or_message
     
     if user_id not in carts or not carts[user_id]:
-        await msg.edit_text("Корзина пуста 😔\nДобавь что-нибудь из меню!", reply_markup=None)
+        await message.edit_text("🛒 Корзина пуста 😔\nДобавь что-нибудь из меню!", reply_markup=None)
         return
     
     total = 0
     text = "🛒 Твоя корзина:\n\n"
-    kb = InlineKeyboardMarkup()
+    kb = InlineKeyboardMarkup(row_width=2)
     
     for item_key, count in carts[user_id].items():
         item = MENU[item_key]
@@ -94,24 +101,17 @@ async def show_cart(message_or_callback):
         total += price
         text += f"• {item['name']} × {count} = {price} ₽\n"
         
-        # кнопки + и -
         plus = InlineKeyboardButton("+", callback_data=f"plus_{item_key}")
         minus = InlineKeyboardButton("-", callback_data=f"minus_{item_key}")
         kb.row(plus, minus)
     
     text += f"\n💰 Итого: {total} ₽"
     
-    pay_btn = InlineKeyboardButton("💳 Оплатить (СБП)", callback_data="pay")
-    clear_btn = InlineKeyboardButton("🗑 Очистить корзину", callback_data="clear")
-    kb.add(pay_btn)
-    kb.add(clear_btn)
+    kb.add(InlineKeyboardButton("💳 Оплатить (СБП)", callback_data="pay"))
+    kb.add(InlineKeyboardButton("🗑 Очистить корзину", callback_data="clear"))
     
-    if isinstance(message_or_callback, types.Message):
-        await msg.answer(text, reply_markup=kb)
-    else:
-        await msg.edit_text(text, reply_markup=kb)
+    await message.edit_text(text, reply_markup=kb)
 
-# === Управление количеством ===
 @dp.callback_query_handler(lambda c: c.data.startswith(("plus_", "minus_")))
 async def change_quantity(callback: types.CallbackQuery):
     action, item_key = callback.data.split("_")
@@ -123,22 +123,20 @@ async def change_quantity(callback: types.CallbackQuery):
         carts[user_id][item_key] -= 1
         if carts[user_id][item_key] <= 0:
             del carts[user_id][item_key]
-            if not carts[user_id]:
-                del carts[user_id]
     
-    await show_cart(callback) # обновляем корзину
-    await callback.answer()
+    if not carts[user_id]:
+        del carts[user_id]
+    
+    await show_cart(callback)
 
-# === Очистка корзины ===
 @dp.callback_query_handler(lambda c: c.data == "clear")
 async def clear_cart(callback: types.CallbackQuery):
     user_id = callback.from_user.id
     if user_id in carts:
         del carts[user_id]
-    await callback.message.edit_text("Корзина очищена 🗑", reply_markup=None)
+    await callback.message.edit_text("🛒 Корзина очищена!", reply_markup=None)
     await callback.answer()
 
-# === Оплата (заглушка, потом вставим ЮKassa) ===
 @dp.callback_query_handler(lambda c: c.data == "pay")
 async def process_payment(callback: types.CallbackQuery):
     user_id = callback.from_user.id
@@ -148,26 +146,24 @@ async def process_payment(callback: types.CallbackQuery):
     
     total = sum(MENU[k]["price"] * v for k, v in carts[user_id].items())
     
-    # Здесь будет настоящая оплата через ЮKassa СБП в один клик
     await callback.message.edit_text(
-        f"Оплата {total} ₽ через СБП...\n"
-        "(пока заглушка — в реальности здесь будет кнопка оплаты)\n\n"
-        "Заказ принят и отправлен на кухню! 🚀"
+        f"Оплата {total} ₽ через СБП...\n\n"
+        "Заказ принят и отправлен на кухню! 🚀\n"
+        "(в будущем здесь будет настоящая оплата в один клик)"
     )
     
     # Уведомление админу
-    order_text = f"🆕 Новый заказ от {callback.from_user.full_name} (ID: {user_id})\n\n"
+    order_text = f"🆕 Новый заказ!\nОт: {callback.from_user.full_name} (ID: {user_id})\n\n"
     for k, v in carts[user_id].items():
         order_text += f"• {MENU[k]['name']} × {v} = {MENU[k]['price'] * v} ₽\n"
     order_text += f"\n💰 Итого: {total} ₽"
     
     await bot.send_message(ADMIN_ID, order_text)
     
-    # Очищаем корзину после заказа
+    # Очищаем корзину
     del carts[user_id]
-    
-    await callback.answer("Заказ принят!")
+    await callback.answer("Спасибо за заказ!")
 
-# Запуск
 if __name__ == "__main__":
+    logging.info("Бот запущен и работает...")
     executor.start_polling(dp, skip_updates=True)
