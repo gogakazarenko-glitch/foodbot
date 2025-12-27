@@ -4,7 +4,7 @@ from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMar
 from aiogram.utils import executor
 
 # === НАСТРОЙКИ — СЮДА ВСТАВЬ СВОИ ТОКЕНЫ ПОЗЖЕ ===
-BOT_TOKEN = "ТОКЕН_БОТА_ОТ_BOTFATHER" # замени на свой
+BOT_TOKEN = "8292431082:AAE6DxgeZU5gc1EvopKpnC0vkxgnnCSitzU" # замени на свой
 ADMIN_ID = 123456789 # замени на свой Telegram ID (админ, куда приходят заказы)
 
 # Логи
