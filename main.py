@@ -1,22 +1,17 @@
 import logging
-import os
 import subprocess
 import sys
 
-# Устанавливаем aiogram, если Render не поставил
+# Устанавливаем aiogram, если нужно
 subprocess.check_call([sys.executable, "-m", "pip", "install", "aiogram==3.4.0"], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT)
 
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils import executor
 
-# === НАСТРОЙКИ (берём из переменных окружения Render) ===
-BOT_TOKEN = os.getenv("BOT_TOKEN") # сюда Render вставит твой токен
-ADMIN_ID = int(os.getenv("ADMIN_ID", "0")) # твой Telegram ID
-
-if not BOT_TOKEN:
-    print("ОШИБКА: BOT_TOKEN не задан!")
-    sys.exit(1)
+# === ТВОИ НАСТРОЙКИ ===
+BOT_TOKEN = "8292431082:AAE6DxgeZU5gc1EvopKpnC0vkxgnnCSitzU" # твой токен
+ADMIN_ID = 2027162196 # твой Telegram ID — теперь заказы будут приходить именно тебе
 
 # Логи
 logging.basicConfig(level=logging.INFO)
@@ -24,14 +19,14 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN, parse_mode="HTML")
 dp = Dispatcher(bot)
 
-# Меню кафе (потом поменяешь на своё)
+# Меню (потом заменишь под реальное кафе)
 MENU = {
     "borch": {"name": "Борщ", "price": 350},
     "vareniki": {"name": "Вареники с картошкой", "price": 280},
     "kompot": {"name": "Компот", "price": 100},
 }
 
-# Корзина пользователей (в памяти)
+# Корзина пользователей
 carts = {}
 
 # Главная клавиатура
@@ -69,13 +64,10 @@ async def add_to_cart(callback: types.CallbackQuery):
     if user_id not in carts:
         carts[user_id] = {}
     
-    if item_key in carts[user_id]:
-        carts[user_id][item_key] += 1
-    else:
-        carts[user_id][item_key] = 1
+    carts[user_id][item_key] = carts[user_id].get(item_key, 0) + 1
     
     await callback.answer(f"Добавлено: {MENU[item_key]['name']}")
-    await show_menu(callback.message) # обновляем меню
+    await show_menu(callback.message)
 
 @dp.message_handler(text="🛒 Корзина")
 @dp.callback_query_handler(lambda c: c.data == "cart")
@@ -118,7 +110,7 @@ async def change_quantity(callback: types.CallbackQuery):
     user_id = callback.from_user.id
     
     if action == "plus":
-        carts[user_id][item_key] += 1
+        carts[user_id][item_key] = carts[user_id].get(item_key, 0) + 1
     else:
         carts[user_id][item_key] -= 1
         if carts[user_id][item_key] <= 0:
@@ -149,10 +141,9 @@ async def process_payment(callback: types.CallbackQuery):
     await callback.message.edit_text(
         f"Оплата {total} ₽ через СБП...\n\n"
         "Заказ принят и отправлен на кухню! 🚀\n"
-        "(в будущем здесь будет настоящая оплата в один клик)"
+        "(скоро добавим настоящую оплату в один клик)"
     )
     
-    # Уведомление админу
     order_text = f"🆕 Новый заказ!\nОт: {callback.from_user.full_name} (ID: {user_id})\n\n"
     for k, v in carts[user_id].items():
         order_text += f"• {MENU[k]['name']} × {v} = {MENU[k]['price'] * v} ₽\n"
@@ -160,10 +151,9 @@ async def process_payment(callback: types.CallbackQuery):
     
     await bot.send_message(ADMIN_ID, order_text)
     
-    # Очищаем корзину
     del carts[user_id]
     await callback.answer("Спасибо за заказ!")
 
 if __name__ == "__main__":
-    logging.info("Бот запущен и работает...")
+    logging.info("Бот запущен и готов принимать заказы!")
     executor.start_polling(dp, skip_updates=True)
